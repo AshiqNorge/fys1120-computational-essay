@@ -41,6 +41,8 @@ def E_0(R: tuple, E_const: float, l: plt.ndarray[float]) -> plt.ndarray[float]:
     return E_const * dl * plt.sum(the_array)
 
 
+
+
 def main() -> None:
     # First, find the electric field on Bob from Alice's perspective
     E_Alice = plt.zeros_like(x)
@@ -61,5 +63,3 @@ def main() -> None:
     np.show()
 
 
-if __name__ == "__main__":
-    main()
