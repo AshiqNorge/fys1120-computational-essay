@@ -2,22 +2,23 @@ from platform import system
 
 import numpy as plt
 import matplotlib.pyplot as np
-# import Klokke as klokke
+import Klokke as klokke
+
 
 
 # Inital conditions
 I = 1e4                                 # A, bør være mellom 5 og 200 tusen 
 c = 299792458                           # m/s, speed of light
-v_train = plt.array([1/3*c-1/4, 0, 0])  # m/s, speed of the train in Alice's system
+v_train = plt.array([1/3*c, 0, 0])  # m/s, speed of the train in Alice's system
 v_lightning = 1/3*c                     # m/s, speed of the lightning in Alice's system
 gamma = 1 /plt.sqrt(1-(v_train[0]/c)**2) # 1, Lorentz factor
 
 L_0 = 100                               # m, length of lightning channel
 h = 10                                  # m, Bobs height above the lightning channel
-Q_Bob = 0.1                             # C, charge we are calculating the force on
+Q_Henry = 1.6*10**-19                   # C, charge of Henry which Bob holds
 
 dt = 1e-8                               # s, time step
-t_max = 0.000001                        # s, maximum time
+t_max = 0.000002                        # s, maximum time
 t_0 = -t_max                            # s, initial time
 x_0 = L_0/2                             # m, initial position of the train
 N_1 = int((t_max-t_0)/dt)               # number of points in which we will calculate Bobs experience
@@ -27,8 +28,8 @@ l = -L_0 / 2+(plt.arange(N_2) + 0.5)*dl  # m, array of positions of the midpoint
 dl_vec = plt.array([dl, 0.0, 0.0])       # m, vector representing the length of each segment of the lightning channel
 t_array = plt.linspace(t_0, t_max, N_1)  # s, time array
 x = v_train[0] * t_array                # m, position of Bob at each time step from one end to the other
-r_lightning_and_train = 1 #seconds
 
+timer = klokke.Klokke(N_1)
 
 mu_0= 4 * plt.pi * 10**-7               # H/m, permeability
 epsilon_0 = 8.854*10**-12               # F/m, permittivity
@@ -49,6 +50,7 @@ def fields_at_bob_in_alice(R: plt.ndarray[float]) -> tuple[plt.ndarray[float], p
     Returns:
         A tuple containing the electric field and magnetic field at Bob's position in Alice's system.
     '''
+
     R3 = plt.linalg.norm(R, axis=1, keepdims=True)**3
     R_over_R3 = R / R3
 
@@ -96,13 +98,45 @@ def main() -> None:
         R[:, 0] = x_Bob - l     # Update the R-vector as Bob has moved
         E_Alice[i], B_Alice[i] = fields_at_bob_in_alice(R)
         E_Bob[i], B_Bob[i] = alice_to_bob(E_Alice[i], B_Alice[i])
+        timer.timer(i)
+
+
+    #calculates Henry stuff --------------
+    R_Henry = plt.copy(R)
+    a_Henry = plt.zeros_like(x)
+    v_Henry = plt.zeros_like(x)
+    t_Henry = 0
+    fail = True
+    Henry_position = plt.zeros((len(x), 3))
+    Henry_position[:, 0] = x
+    
+    proton_mass = 1.6e-27 #kg
+    
+    for i, x_Bob in enumerate(x):
+        R_Henry[:, 0] = x_Bob-l
+        Henry_position[i+1, 2] = Henry_position[i, 2] + 0.5*a_Henry[i]*dt**2 + v_Henry[i]*dt
+        R_Henry[:, 2] = Henry_position[i+1, 2]
+        
+        force_elec, force_magn = fields_at_bob_in_alice(R_Henry[:]) #finds Henry's acceleration in Alices system
+        a_Henry[i+1] = force_elec[2]*Q_Henry/proton_mass + (plt.cross(plt.array([v_train, 0, v_Henry[i]]), force_magn)*Q_Henry/proton_mass)
+
+        v_Henry[i+1] = v_Henry[i] + 0.5*(a_Henry[i]+a_Henry[i+1])*dt
+        t_Henry += dt
+        if Henry_position[i+1, 2] <= 0:
+            print(f"{Henry_position[i+1]=}, {t_Henry=}")
+            fail = False
+            exit
+    if fail == True:
+        print("Henrykoden rakk ikke kjøre, øk t_max for bedre resultater.")
+
+
 
     # Calculate the forces on Bob in both systems.
-    F_electric_Alice = Q_Bob * E_Alice
-    F_magnetic_Alice = Q_Bob * plt.cross(v_train, B_Alice)
+    F_electric_Alice = Q_Henry * E_Alice
+    F_magnetic_Alice = Q_Henry * plt.cross(v_train, B_Alice)
     F_Alice = F_electric_Alice + F_magnetic_Alice
 
-    F_Bob = Q_Bob * E_Bob   # Bob does see a magnetic field, but it does not exert a force on him since he is at rest in his own system.
+    F_Bob = Q_Henry * E_Bob   # Bob does see a magnetic field, but it does not exert a force on him since he is at rest in his own system.
 
     # fig is a matplotlib figure object, and ax is a 2x2 array of subplots, with the first index being the row and the second index being the column.
     fig, ax = np.subplots(2, 2, layout="constrained")
@@ -142,8 +176,8 @@ if __name__ == "__main__":
 '''
 Kort diskusjon. Si at når Bob passerer Alice, så dropper han en positiv ladning rett ned.
 Begge vil se at den får en kraft nedover, men vil være uenig om kraftn:
-- Alice ser at ladningen beveger seg med toget, og forklarer kraft nedover som magnetkraft (qv x B)
-- Bob ser at ladningen er i ro, og forklarer kraft nedover med sitt elektriske felt (qE_z)
+- Alice ser at ladningen beveger seg med toget, og forklarer kraft nedover som magnetkraft (qv x B) fra lynkanalen.
+- Bob ser at ladningen er i ro, og forklarer kraft nedover med sitt elektriske felt (qE_z) som kommer fra lynkanalen
 
 Da kan vi forklare hvordan Alice kun ser B felt, mens Bob ser E og B felt.
 Alice: Vi definerer ledningen som null netto ladning, da får vi kun B felt fra Bob's bevegelse

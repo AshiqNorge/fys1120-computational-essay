@@ -6,7 +6,7 @@ import Klokke as klokke
 # Inital conditions
 I = 1e4 # Ampere, bør være mellom 5 og 200 tusen 
 c = 299792458 # speed of light in m/s
-v_train = plt.array([1/3*c-1/4*, 0, 0]) #velocity in m/s
+v_train = plt.array([1/3*c-1/4*c, 0, 0]) #velocity in m/s
 v_lightning = 1/3*c #velocity in m/s
 L_0 = 100 # meters
 dt = 1e-8 # seconds
