@@ -13,16 +13,16 @@ v_train = plt.array([1/3*c, 0, 0])  # m/s, speed of the train in Alice's system
 v_lightning = 1/3*c                     # m/s, speed of the lightning in Alice's system
 gamma = 1 /plt.sqrt(1-(v_train[0]/c)**2) # 1, Lorentz factor
 
-L_0 = 100                               # m, length of lightning channel
+L_0 = 100 *10                               # m, length of lightning channel
 h = 10                                  # m, Bobs height above the lightning channel
 Q_Henry = 1.6*10**-19                   # C, charge of Henry which Bob holds
 
 dt = 1e-8                               # s, time step
-t_max = 0.000002                        # s, maximum time
+t_max = 1e-5                        # s, maximum time
 t_0 = -t_max                            # s, initial time
-x_0 = L_0/2                             # m, initial position of the train
+#x_0 = L_0/2                             # m, initial position of the train
 N_1 = int((t_max-t_0)/dt)               # number of points in which we will calculate Bobs experience
-N_2 = 100000                            # number of points we will use to find the magnetic and electric fields
+N_2 = 100000                             # number of points we will use to find the magnetic and electric fields
 dl = L_0 / N_2                          # m, length of each segment of the lightning channel
 l = -L_0 / 2+(plt.arange(N_2) + 0.5)*dl  # m, array of positions of the midpoint of each segment of the lightning channel
 dl_vec = plt.array([dl, 0.0, 0.0])       # m, vector representing the length of each segment of the lightning channel
@@ -30,6 +30,7 @@ t_array = plt.linspace(t_0, t_max, N_1)  # s, time array
 x = v_train[0] * t_array                # m, position of Bob at each time step from one end to the other
 
 timer = klokke.Klokke(N_1)
+timer2 = klokke.Klokke(N_1)
 
 mu_0= 4 * plt.pi * 10**-7               # H/m, permeability
 epsilon_0 = 8.854*10**-12               # F/m, permittivity
@@ -57,6 +58,7 @@ def fields_at_bob_in_alice(R: plt.ndarray[float]) -> tuple[plt.ndarray[float], p
     E = E_const * plt.sum(R_over_R3, axis=0)
     dB = B_const * plt.cross(dl_vec, R_over_R3)
     B = plt.sum(dB, axis=0)
+
     return E, B
 
 def alice_to_bob(E_Alice: plt.ndarray[float], B_Alice: plt.ndarray[float]) -> tuple[plt.ndarray[float], plt.ndarray[float]]:
@@ -94,11 +96,11 @@ def main() -> None:
 
 
     # Calculate the fields at Bob's position for each time step.
-    for i, x_Bob in enumerate(x):
-        R[:, 0] = x_Bob - l     # Update the R-vector as Bob has moved
-        E_Alice[i], B_Alice[i] = fields_at_bob_in_alice(R)
-        E_Bob[i], B_Bob[i] = alice_to_bob(E_Alice[i], B_Alice[i])
-        timer.timer(i)
+    # for i, x_Bob in enumerate(x):
+    #     R[:, 0] = x_Bob - l     # Update the R-vector as Bob has moved
+    #     E_Alice[i], B_Alice[i] = fields_at_bob_in_alice(R)
+    #     E_Bob[i], B_Bob[i] = alice_to_bob(E_Alice[i], B_Alice[i])
+    #     timer.timer(i)
 
 
     #calculates Henry stuff --------------
@@ -109,29 +111,63 @@ def main() -> None:
     fail = True
     Henry_position = plt.zeros((len(x), 3))
     Henry_position[:, 0] = x
-    
+    Henry_position[:, 2] = h
+    Henry_timearray = plt.zeros(len(x))
+    Henry_timearray += t_0
     proton_mass = 1.6e-27 #kg
     
-    #Problem: Henry opplever ikke noen kraft???
+    a_Henry_Bob = plt.copy(a_Henry)
+    v_Henry_Bob = plt.copy(v_Henry)
+    x_Henry_Bob = plt.copy(Henry_position)
+    x_Henry_Bob[:, 0] = x
+    x_Henry_Bob[:, 2] = h
 
+    #Bruker LeapFrog for å integrere Henrys bane
     for i, x_Bob in enumerate(x):
         R_Henry[:, 0] = x_Bob-l
         Henry_position[i, 2] = Henry_position[i-1, 2] + 0.5*a_Henry[i-1]*dt**2 + v_Henry[i-1]*dt
         R_Henry[:, 2] = Henry_position[i, 2]
-        
-        force_elec, force_magn = fields_at_bob_in_alice(R_Henry[:]) #finds Henry's acceleration in Alices system
-        a_Henry[i] = force_elec[2]*Q_Henry/proton_mass + (plt.cross(plt.array([v_train[0], 0, v_Henry[i-1]]), force_magn)[2]*Q_Henry/proton_mass)
+        field_elec, field_magn = fields_at_bob_in_alice(R_Henry) #finds Henry's acceleration in Alices system
+        a_Henry[i] = field_elec[2]*Q_Henry/proton_mass + (plt.cross(plt.array([v_train[0], 0, v_Henry[i-1]]), field_magn)[2]*Q_Henry/proton_mass)
         v_Henry[i] = v_Henry[i-1] + 0.5*(a_Henry[i-1]+a_Henry[i])*dt
         t_Henry += dt
-        if Henry_position[i, 2] < 0:
-            print(f"{Henry_position[i+1]=}, {t_Henry=}")
+        Henry_timearray[i] += t_Henry
+
+        #In Bobs frame of referance:
+        x_Henry_Bob[i, 2] = x_Henry_Bob[i-1, 2] + 0.5*a_Henry_Bob[i-1]*dt**2 + v_Henry_Bob[i-1]*dt
+        field_elec_Bob, field_magn_Bob = alice_to_bob(field_elec, field_magn)
+        a_Henry_Bob[i] = field_elec[2]*Q_Henry/proton_mass + (plt.cross(plt.array([0, 0, v_Henry[i-1]]), field_magn_Bob)[2]*Q_Henry/proton_mass)
+        v_Henry_Bob[i] = v_Henry_Bob[i-1] + 0.5*(a_Henry[i-1] + a_Henry[i])*dt
+        if Henry_position[i, 2] <= 0:
+            print(f"{Henry_position[i]=}, {t_Henry=}, {x_Bob=}")
+            N_Henry = i+1
             fail = False
-            exit
+            break
+        timer2.timer(i)
     if fail == True:
-        print("Henrykoden rakk ikke kjøre, øk t_max for bedre resultater.")
+        print(f"Henrykoden rakk ikke kjøre, øk t_max for bedre resultater. Henrys posisjon er nå: {Henry_position[-1]}")
+
+    print(f"{Henry_position[0]=}, {Henry_timearray[0]=}")
+    #Problem: Posisjonen på x-aksen vi får fra koden er åpenbart feil. Vi får -220m, men vi skal få 780m
+
+
+    np.subplot(1, 2, 1)
+    np.plot(Henry_timearray[:N_Henry], x_Henry_Bob[:N_Henry, 2], "o")
+    np.xlabel("Time [s]")
+    np.ylabel("position [m]")
+    np.title("Bob ref.syst.")
+
+    np.subplot(1, 2, 2)
+    np.plot(Henry_timearray[:N_Henry], Henry_position[:N_Henry, 2], "o")
+    np.xlabel("Time [s]")
+    np.ylabel("position [m]")
+    np.title("Alice ref.syst.")
+    np.show()
 
 
 
+
+    '''
     # Calculate the forces on Bob in both systems.
     F_electric_Alice = Q_Henry * E_Alice
     F_magnetic_Alice = Q_Henry * plt.cross(v_train, B_Alice)
@@ -166,10 +202,11 @@ def main() -> None:
 
     fig.supxlabel("Bobs position in Alice's system [m]")
     np.show()
+    '''
 
 if __name__ == "__main__":
     main()
-
+    
 
 
 
